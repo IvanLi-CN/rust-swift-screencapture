@@ -1,0 +1,9 @@
+/target
+Cargo.lock
+.idea
+.DS_Store
+
+# Xcode
+xcuserdata/
+
+recording*.mov
