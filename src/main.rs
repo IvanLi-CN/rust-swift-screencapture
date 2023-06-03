@@ -1,18 +1,22 @@
 use std::{thread, time::Duration};
 
-use crate::ffi::stop_record;
+use rust_binary_calls_swift_package::display::Display;
 
-fn main() {
-    let start_num = 100;
+#[tokio::main]
+async fn main() {
+    env_logger::init();
 
-    println!("The Rust starting number is {}.", start_num);
+    let args = std::env::args().collect::<Vec<_>>();
 
-    let num = ffi::swift_multiply_by_4(start_num);
+    let display_id = args[1].parse::<u32>().unwrap();
 
-    println!("Printing the number from Rust...");
-    println!("The number is now {}.", num);
+    println!("display_id: {}", display_id);
 
-    ffi::start_record();
+    let display = Display::new(display_id);
+
+    display.start_capture().await;
+
+    println!("Press any key to exit...");
 
     // wait stdin to exit
     let mut input = String::new();
@@ -20,30 +24,5 @@ fn main() {
         thread::sleep(Duration::from_millis(100));
     }
     println!("input: {}", input);
-    stop_record();
-
-}
-
-#[swift_bridge::bridge]
-mod ffi {
-    extern "Rust" {
-        fn rust_double_number(num: i64) -> i64;
-        fn frame(size: i64);
-    }
-
-    extern "Swift" {
-        fn swift_multiply_by_4(num: i64) -> i64;
-        fn start_record();
-        fn stop_record();
-    }
-}
-
-fn rust_double_number(num: i64) -> i64 {
-    println!("Rust double function called...");
-
-    num * 2
-}
-
-fn frame(size: i64) {
-    println!("Rust frame function called. size: {}", size);
+    display.stop_capture().await;
 }

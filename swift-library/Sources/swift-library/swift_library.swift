@@ -2,17 +2,6 @@ import AVFoundation
 import CoreGraphics
 import ScreenCaptureKit
 
-func swift_multiply_by_4(num: Int64) -> Int64 {
-  print("Starting Swift multiply by 4 function...")
-
-  print("Calling the Rust double function twice in order to 4x our number...")
-  let double = rust_double_number(num)
-  let four_times = rust_double_number(double)
-
-  print("Leaving Swift multiply by 4 function...")
-  return four_times
-}
-
 //
 //  ScreenCaptureKit-Recording-example
 //
@@ -22,11 +11,13 @@ func swift_multiply_by_4(num: Int64) -> Int64 {
 let stop_semaphore = DispatchSemaphore(value: 0)
 let stopped_semaphore = DispatchSemaphore(value: 0)
 
-func start_record() {
+func start_record(displayId: UInt32) {
   let semaphore = DispatchSemaphore(value: 0)
 
   Task {
-    await _start_record()
+    print("Equals: \(displayId == CGMainDisplayID())")
+    await _start_record(displayId: CGDirectDisplayID(displayId))
+
     semaphore
       .signal()
   }
@@ -44,9 +35,10 @@ func stop_record() {
 
 }
 
-@available(macOS 13.0, *)
-func _start_record() async {
-  // Create a screen recording
+func _start_record(displayId: CGDirectDisplayID) async {
+  print("Starting screen recording of \(displayId) display")
+
+  // Create a screen record ing
   do {
     // Check for screen recording permission, make sure your terminal has screen recording permission
     guard CGPreflightScreenCaptureAccess() else {
@@ -57,7 +49,7 @@ func _start_record() async {
       path: "recording \(Date()).mov")
     //    let cropRect = CGRect(x: 0, y: 0, width: 960, height: 540)
     let screenRecorder = try await ScreenRecorder(
-      url: url, displayID: CGMainDisplayID(), cropRect: nil)
+      url: url, displayID: displayId, cropRect: nil)
 
     print("Starting screen recording of main display")
     try await screenRecorder.start()
@@ -98,7 +90,10 @@ struct ScreenRecorder {
   private let streamOutput: StreamOutput
   private var stream: SCStream
 
+  private let displayID: CGDirectDisplayID
+
   init(url: URL, displayID: CGDirectDisplayID, cropRect: CGRect?) async throws {
+    self.displayID = displayID
 
     // Create AVAssetWriter for a QuickTime movie file
     self.assetWriter = try AVAssetWriter(url: url, fileType: .mov)
@@ -139,7 +134,7 @@ struct ScreenRecorder {
     // Create AVAssetWriter input for video, based on the output settings from the Assistant
     videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
     videoInput.expectsMediaDataInRealTime = true
-    streamOutput = StreamOutput(videoInput: videoInput)
+    streamOutput = StreamOutput(displayID: self.displayID, videoInput: videoInput)
 
     // Adding videoInput to assetWriter
     guard assetWriter.canAdd(videoInput) else {
@@ -229,9 +224,12 @@ struct ScreenRecorder {
     var sessionStarted = false
     var firstSampleTime: CMTime = .zero
     var lastSampleBuffer: CMSampleBuffer?
+    private let displayID: CGDirectDisplayID
 
-    init(videoInput: AVAssetWriterInput) {
+    init(displayID: CGDirectDisplayID, videoInput: AVAssetWriterInput) {
       self.videoInput = videoInput
+      self.displayID = displayID
+
     }
 
     func stream(
@@ -276,6 +274,36 @@ struct ScreenRecorder {
           // from the ScreenCaptureKit queue.
           // Make sure reserve enough in SCStreamConfiguration.queueDepth
           lastSampleBuffer = sampleBuffer
+
+          let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)!
+
+          // Lock the image buffer
+          CVPixelBufferLockBaseAddress(imageBuffer, [])
+          defer {
+            CVPixelBufferUnlockBaseAddress(imageBuffer, [])
+          }
+
+          // Get the raw byte stream of the video data
+          let _ = CVPixelBufferGetWidth(imageBuffer)
+          let height = CVPixelBufferGetHeight(imageBuffer)
+          let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer)
+          let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer)
+          let dataSize = bytesPerRow * height
+          // let data = Data(bytes: baseAddress!, count: dataSize)
+
+          // let bytes = [UInt8](data)
+
+          // Get bytes UnsafeBufferPointer
+          let bytesPointer = UnsafeBufferPointer(
+            start: baseAddress?.assumingMemoryBound(to: UInt8.self), count: dataSize)
+
+          frame(
+            self.displayID,
+            bytesPerRow,
+            height,
+            bytesPointer
+          )
+          //   print("sample buffer size: \(dataSize)")
 
           // Create a new CMSampleBuffer by copying the original, and applying the new presentationTimeStamp
           let timing = CMSampleTimingInfo(
