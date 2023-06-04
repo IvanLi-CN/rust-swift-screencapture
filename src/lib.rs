@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use display::CGDisplayId;
 use log::debug;
-use tokio::runtime::Handle;
+use tokio::{runtime::Handle, sync::Mutex};
 
-use crate::display::{DisplayManager, HANDLE};
+use crate::display::{DisplayManager, HANDLE, Frame};
 
 pub mod display;
 
@@ -28,6 +30,10 @@ fn frame(id: CGDisplayId, width: isize, height: isize, bytes: &[u8]) {
     let handle = handle.lock().unwrap().clone().unwrap();
 
     handle.spawn(async move {
-        DisplayManager::global().await.frame(id, width, height, bytes).await;
+        DisplayManager::global().await.frame(id, Frame {
+            width,
+            height,
+            bytes: Arc::new(bytes),
+        }).await;
     });
 }

@@ -1,5 +1,6 @@
 use std::{thread, time::Duration};
 
+use log::info;
 use rust_binary_calls_swift_package::display::Display;
 
 #[tokio::main]
@@ -15,6 +16,15 @@ async fn main() {
     let display = Display::new(display_id);
 
     display.start_capture().await;
+
+    let rx = display.frame_stream().await;
+    tokio::spawn(async move {
+        while rx.has_changed().is_ok() {
+            let frame = rx.borrow().clone();
+            info!("frame: {}", frame);
+            tokio::task::yield_now().await;
+        }
+    });
 
     println!("Press any key to exit...");
 
