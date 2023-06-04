@@ -1,6 +1,6 @@
 [package]
-name = "rust-binary-calls-swift-package"
-version = "0.1.0"
+name = "rust_swift_screencapture"
+version = "0.1.1"
 edition = "2021"
 publish = []
 

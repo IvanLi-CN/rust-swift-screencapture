@@ -14,6 +14,7 @@ pub type CGDisplayId = u32;
 
 #[derive(Clone)]
 pub struct Frame {
+    pub bytes_per_row: isize,
     pub width: isize,
     pub height: isize,
     pub bytes: Arc<Vec<u8>>,
@@ -23,10 +24,11 @@ impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Frame: {}x{}, len: {}",
+            "Frame: {}x{}, len: {}, bytes_per_row: {}",
             self.width,
             self.height,
-            self.bytes.len()
+            self.bytes.len(),
+            self.bytes_per_row
         )
     }
 }
@@ -65,8 +67,9 @@ impl Display {
         manager.stop_capture(self.display_id).await;
     }
 
-    pub async fn frame_stream(&self) -> watch::Receiver<Frame> {
+    pub async fn subscribe_frame(&self) -> watch::Receiver<Frame> {
         let (tx, rx) = watch::channel(Frame {
+            bytes_per_row: 0,
             width: 0,
             height: 0,
             bytes: Arc::new(Vec::new()),
@@ -107,6 +110,7 @@ impl DisplayManager {
         let (all_frame_tx, _) = watch::channel((
             0,
             Frame {
+                bytes_per_row: 0,
                 width: 0,
                 height: 0,
                 bytes: Arc::new(Vec::new()),

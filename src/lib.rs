@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use display::CGDisplayId;
-use log::debug;
-use tokio::{runtime::Handle, sync::Mutex};
+use log::{debug, warn};
 
 use crate::display::{DisplayManager, HANDLE, Frame};
 
@@ -12,7 +11,7 @@ pub mod display;
 pub mod ffi {
 
     extern "Rust" {
-        fn frame(id: u32, width: isize, height: isize, bytes: &[u8]);
+        fn frame(id: u32, bytes_per_row: isize, width: isize, height: isize, bytes: &[u8]);
     }
 
     extern "Swift" {
@@ -21,8 +20,8 @@ pub mod ffi {
     }
 }
 
-fn frame(id: CGDisplayId, width: isize, height: isize, bytes: &[u8]) {
-    debug!("frame: {}x{}", width, height);
+fn frame(id: CGDisplayId, bytes_per_row: isize, width: isize, height: isize, bytes: &[u8]) {
+    warn!("frame: {}x{}. bytes_per_row: {}", width, height, bytes_per_row);
 
     let bytes = bytes.to_vec();
 
@@ -31,6 +30,7 @@ fn frame(id: CGDisplayId, width: isize, height: isize, bytes: &[u8]) {
 
     handle.spawn(async move {
         DisplayManager::global().await.frame(id, Frame {
+            bytes_per_row,
             width,
             height,
             bytes: Arc::new(bytes),

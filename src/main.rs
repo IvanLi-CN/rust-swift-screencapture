@@ -1,7 +1,7 @@
 use std::{thread, time::Duration};
 
 use log::info;
-use rust_binary_calls_swift_package::display::Display;
+use rust_swift_screencapture::display::Display;
 
 #[tokio::main]
 async fn main() {
@@ -17,7 +17,7 @@ async fn main() {
 
     display.start_capture().await;
 
-    let rx = display.frame_stream().await;
+    let rx = display.subscribe_frame().await;
     tokio::spawn(async move {
         while rx.has_changed().is_ok() {
             let frame = rx.borrow().clone();

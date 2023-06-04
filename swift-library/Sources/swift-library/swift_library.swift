@@ -85,8 +85,6 @@ func _start_record(displayId: CGDirectDisplayID) async {
 struct ScreenRecorder {
   private let videoSampleBufferQueue = DispatchQueue(label: "ScreenRecorder.VideoSampleBufferQueue")
 
-  private let assetWriter: AVAssetWriter
-  private let videoInput: AVAssetWriterInput
   private let streamOutput: StreamOutput
   private var stream: SCStream
 
@@ -94,9 +92,6 @@ struct ScreenRecorder {
 
   init(url: URL, displayID: CGDirectDisplayID, cropRect: CGRect?) async throws {
     self.displayID = displayID
-
-    // Create AVAssetWriter for a QuickTime movie file
-    self.assetWriter = try AVAssetWriter(url: url, fileType: .mov)
 
     // MARK: AVAssetWriter setup
 
@@ -112,42 +107,7 @@ struct ScreenRecorder {
       displayScaleFactor = 1
     }
 
-    // AVAssetWriterInput supports maximum resolution of 4096x2304 for H.264
-    // Downsize to fit a larger display back into in 4K
-    let videoSize = downsizedVideoSize(
-      source: cropRect?.size ?? displaySize, scaleFactor: displayScaleFactor)
-
-    // This preset is the maximum H.264 preset, at the time of writing this code
-    // Make this as large as possible, size will be reduced to screen size by computed videoSize
-    guard let assistant = AVOutputSettingsAssistant(preset: .preset3840x2160) else {
-      throw RecordingError("Can't create AVOutputSettingsAssistant with .preset3840x2160")
-    }
-    assistant.sourceVideoFormat = try CMVideoFormatDescription(
-      videoCodecType: .h264, width: videoSize.width, height: videoSize.height)
-
-    guard var outputSettings = assistant.videoSettings else {
-      throw RecordingError("AVOutputSettingsAssistant has no videoSettings")
-    }
-    outputSettings[AVVideoWidthKey] = videoSize.width
-    outputSettings[AVVideoHeightKey] = videoSize.height
-
-    // Create AVAssetWriter input for video, based on the output settings from the Assistant
-    videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
-    videoInput.expectsMediaDataInRealTime = true
-    streamOutput = StreamOutput(displayID: self.displayID, videoInput: videoInput)
-
-    // Adding videoInput to assetWriter
-    guard assetWriter.canAdd(videoInput) else {
-      throw RecordingError("Can't add input to asset writer")
-    }
-    assetWriter.add(videoInput)
-
-    guard assetWriter.startWriting() else {
-      if let error = assetWriter.error {
-        throw error
-      }
-      throw RecordingError("Couldn't start writing to AVAssetWriter")
-    }
+    streamOutput = StreamOutput(displayID: self.displayID)
 
     // MARK: SCStream setup
 
@@ -160,6 +120,10 @@ struct ScreenRecorder {
 
     let configuration = SCStreamConfiguration()
     configuration.queueDepth = 6
+    configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+    configuration
+      .pixelFormat = kCVPixelFormatType_32BGRA
+    configuration.showsCursor = false
 
     // Make sure to take displayScaleFactor into account
     // otherwise, image is scaled up and gets blurry
@@ -184,50 +148,21 @@ struct ScreenRecorder {
     // Start capturing, wait for stream to start
     try await stream.startCapture()
 
-    // Start the AVAssetWriter session at source time .zero, sample buffers will need to be re-timed
-    assetWriter.startSession(atSourceTime: .zero)
     streamOutput.sessionStarted = true
   }
 
   func stop() async throws {
-
-    // Stop capturing, wait for stream to stop
     try await stream.stopCapture()
 
-    // Repeat the last frame and add it at the current time
-    // In case no changes happend on screen, and the last frame is from long ago
-    // This ensures the recording is of the expected length
-    if let originalBuffer = streamOutput.lastSampleBuffer {
-      let additionalTime =
-        CMTime(seconds: ProcessInfo.processInfo.systemUptime, preferredTimescale: 100)
-        - streamOutput.firstSampleTime
-      let timing = CMSampleTimingInfo(
-        duration: originalBuffer.duration, presentationTimeStamp: additionalTime,
-        decodeTimeStamp: originalBuffer.decodeTimeStamp)
-      let additionalSampleBuffer = try CMSampleBuffer(
-        copying: originalBuffer, withNewTiming: [timing])
-      videoInput.append(additionalSampleBuffer)
-      streamOutput.lastSampleBuffer = additionalSampleBuffer
-    }
-
-    // Stop the AVAssetWriter session at time of the repeated frame
-    assetWriter.endSession(
-      atSourceTime: streamOutput.lastSampleBuffer?.presentationTimeStamp ?? .zero)
-
-    // Finish writing
-    videoInput.markAsFinished()
-    await assetWriter.finishWriting()
   }
 
   private class StreamOutput: NSObject, SCStreamOutput {
-    let videoInput: AVAssetWriterInput
     var sessionStarted = false
     var firstSampleTime: CMTime = .zero
-    var lastSampleBuffer: CMSampleBuffer?
+
     private let displayID: CGDirectDisplayID
 
-    init(displayID: CGDirectDisplayID, videoInput: AVAssetWriterInput) {
-      self.videoInput = videoInput
+    init(displayID: CGDirectDisplayID) {
       self.displayID = displayID
 
     }
@@ -258,67 +193,40 @@ struct ScreenRecorder {
 
       switch type {
       case .screen:
-        if videoInput.isReadyForMoreMediaData {
-          // Save the timestamp of the current sample, all future samples will be offset by this
-          if firstSampleTime == .zero {
-            firstSampleTime = sampleBuffer.presentationTimeStamp
-          }
+        let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)!
 
-          // Offset the time of the sample buffer, relative to the first sample
-          let lastSampleTime = sampleBuffer.presentationTimeStamp - firstSampleTime
-
-          // Always save the last sample buffer.
-          // This is used to "fill up" empty space at the end of the recording.
-          //
-          // Note that this permanently captures one of the sample buffers
-          // from the ScreenCaptureKit queue.
-          // Make sure reserve enough in SCStreamConfiguration.queueDepth
-          lastSampleBuffer = sampleBuffer
-
-          let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)!
-
-          // Lock the image buffer
-          CVPixelBufferLockBaseAddress(imageBuffer, [])
-          defer {
-            CVPixelBufferUnlockBaseAddress(imageBuffer, [])
-          }
-
-          // Get the raw byte stream of the video data
-          let _ = CVPixelBufferGetWidth(imageBuffer)
-          let height = CVPixelBufferGetHeight(imageBuffer)
-          let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer)
-          let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer)
-          let dataSize = bytesPerRow * height
-          // let data = Data(bytes: baseAddress!, count: dataSize)
-
-          // let bytes = [UInt8](data)
-
-          // Get bytes UnsafeBufferPointer
-          let bytesPointer = UnsafeBufferPointer(
-            start: baseAddress?.assumingMemoryBound(to: UInt8.self), count: dataSize)
-
-          frame(
-            self.displayID,
-            bytesPerRow,
-            height,
-            bytesPointer
-          )
-          //   print("sample buffer size: \(dataSize)")
-
-          // Create a new CMSampleBuffer by copying the original, and applying the new presentationTimeStamp
-          let timing = CMSampleTimingInfo(
-            duration: sampleBuffer.duration, presentationTimeStamp: lastSampleTime,
-            decodeTimeStamp: sampleBuffer.decodeTimeStamp)
-          if let retimedSampleBuffer = try? CMSampleBuffer(
-            copying: sampleBuffer, withNewTiming: [timing])
-          {
-            videoInput.append(retimedSampleBuffer)
-          } else {
-            print("Couldn't copy CMSampleBuffer, dropping frame")
-          }
-        } else {
-          print("AVAssetWriterInput isn't ready, dropping frame")
+        // Lock the image buffer
+        CVPixelBufferLockBaseAddress(imageBuffer, [])
+        defer {
+          CVPixelBufferUnlockBaseAddress(imageBuffer, [])
         }
+
+        // Get the raw byte stream of the video data
+
+        let width = CVPixelBufferGetWidth(imageBuffer)
+
+        let height = CVPixelBufferGetHeight(imageBuffer)
+
+        let bytesPerRow: Int = CVPixelBufferGetBytesPerRow(imageBuffer)
+        let scaleFactor = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 0) / bytesPerRow
+
+        let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer)
+        let dataSize = bytesPerRow * height
+        // let data = Data(bytes: baseAddress!, count: dataSize)
+
+        // let bytes = [UInt8](data)
+
+        // Get bytes UnsafeBufferPointer
+        let bytesPointer = UnsafeBufferPointer(
+          start: baseAddress?.assumingMemoryBound(to: UInt8.self), count: dataSize)
+
+        frame(
+          self.displayID,
+          bytesPerRow,
+          width,
+          height,
+          bytesPointer
+        )
 
       case .audio:
         break
