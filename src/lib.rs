@@ -15,13 +15,13 @@ pub mod ffi {
     }
 
     extern "Swift" {
-        fn start_record(displayId: u32);
+        fn start_record(displayId: u32, frameRate: i32);
         fn stop_record();
     }
 }
 
 fn frame(id: CGDisplayId, bytes_per_row: isize, width: isize, height: isize, bytes: &[u8]) {
-    warn!("frame: {}x{}. bytes_per_row: {}", width, height, bytes_per_row);
+    debug!("frame: {}x{}. bytes_per_row: {}", width, height, bytes_per_row);
 
     let bytes = bytes.to_vec();
 

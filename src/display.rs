@@ -55,10 +55,10 @@ impl Display {
         Self { display_id }
     }
 
-    pub async fn start_capture(&self) {
+    pub async fn start_capture(&self, frame_rate: i32) {
         let manager = DisplayManager::global().await;
 
-        manager.start_capture(self.display_id).await;
+        manager.start_capture(self.display_id, frame_rate).await;
     }
 
     pub async fn stop_capture(&self) {
@@ -144,7 +144,7 @@ impl DisplayManager {
         tokio::task::yield_now().await;
     }
 
-    pub async fn start_capture(&self, display_id: CGDisplayId) {
+    pub async fn start_capture(&self, display_id: CGDisplayId, frame_rate: i32) {
         let mut ids = self.capturing_display_ids.write().await;
 
         if let Some(count) = ids.get_mut(&display_id) {
@@ -152,7 +152,7 @@ impl DisplayManager {
             return;
         }
 
-        start_record(display_id);
+        start_record(display_id, frame_rate);
         ids.insert(display_id, 1);
     }
 

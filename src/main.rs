@@ -15,7 +15,7 @@ async fn main() {
 
     let display = Display::new(display_id);
 
-    display.start_capture().await;
+    display.start_capture(30).await;
 
     let rx = display.subscribe_frame().await;
     tokio::spawn(async move {

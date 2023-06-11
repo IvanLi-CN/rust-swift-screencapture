@@ -11,12 +11,14 @@ import ScreenCaptureKit
 let stop_semaphore = DispatchSemaphore(value: 0)
 let stopped_semaphore = DispatchSemaphore(value: 0)
 
-func start_record(displayId: UInt32) {
+func start_record(displayId: UInt32, frameRate: Int32) {
   let semaphore = DispatchSemaphore(value: 0)
 
   Task {
-    print("Equals: \(displayId == CGMainDisplayID())")
-    await _start_record(displayId: CGDirectDisplayID(displayId))
+await _start_record(
+  displayId: CGDirectDisplayID(displayId), frameRate: frameRate
+)
+
 
     semaphore
       .signal()
@@ -35,7 +37,7 @@ func stop_record() {
 
 }
 
-func _start_record(displayId: CGDirectDisplayID) async {
+func _start_record(displayId: CGDirectDisplayID, frameRate: Int32) async {
   print("Starting screen recording of \(displayId) display")
 
   // Create a screen record ing
@@ -45,11 +47,10 @@ func _start_record(displayId: CGDirectDisplayID) async {
       throw RecordingError("No screen capture permission")
     }
 
-    let url = URL(filePath: FileManager.default.currentDirectoryPath).appending(
-      path: "recording \(Date()).mov")
-    //    let cropRect = CGRect(x: 0, y: 0, width: 960, height: 540)
-    let screenRecorder = try await ScreenRecorder(
-      url: url, displayID: displayId, cropRect: nil)
+
+let screenRecorder = try await ScreenRecorder(
+  displayID: displayId, cropRect: nil, frameRate: frameRate)
+
 
     print("Starting screen recording of main display")
     try await screenRecorder.start()
@@ -65,7 +66,6 @@ func _start_record(displayId: CGDirectDisplayID) async {
           try await screenRecorder.stop()
           print("Recording ended, opening video")
 
-          NSWorkspace.shared.open(url)
           stopped_semaphore
             .signal()
 
@@ -90,7 +90,9 @@ struct ScreenRecorder {
 
   private let displayID: CGDirectDisplayID
 
-  init(url: URL, displayID: CGDirectDisplayID, cropRect: CGRect?) async throws {
+  init(displayID: CGDirectDisplayID, cropRect: CGRect?, frameRate: Int32 = 30)
+    async throws
+  {
     self.displayID = displayID
 
     // MARK: AVAssetWriter setup
@@ -109,6 +111,7 @@ struct ScreenRecorder {
 
     streamOutput = StreamOutput(displayID: self.displayID)
 
+
     // MARK: SCStream setup
 
     // Create a filter for the specified display
@@ -119,8 +122,10 @@ struct ScreenRecorder {
     let filter = SCContentFilter(display: display, excludingWindows: [])
 
     let configuration = SCStreamConfiguration()
-    configuration.queueDepth = 6
-    configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+configuration.queueDepth = 2
+configuration.minimumFrameInterval = CMTime(value: 1, timescale: frameRate)
+configuration.capturesAudio = false
+
     configuration
       .pixelFormat = kCVPixelFormatType_32BGRA
     configuration.showsCursor = false
@@ -171,6 +176,8 @@ struct ScreenRecorder {
       _ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
       of type: SCStreamOutputType
     ) {
+print("Got sample buffer")
+
 
       // Return early if session hasn't started yet
       guard sessionStarted else { return }
@@ -208,7 +215,8 @@ struct ScreenRecorder {
         let height = CVPixelBufferGetHeight(imageBuffer)
 
         let bytesPerRow: Int = CVPixelBufferGetBytesPerRow(imageBuffer)
-        let scaleFactor = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 0) / bytesPerRow
+// let scaleFactor = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 0) / bytesPerRow
+
 
         let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer)
         let dataSize = bytesPerRow * height
