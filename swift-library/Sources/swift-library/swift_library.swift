@@ -47,6 +47,8 @@ func _start_record(displayId: CGDirectDisplayID, frameRate: Int32) async {
       throw RecordingError("No screen capture permission")
     }
 
+CGMainDisplayID()
+
 
 let screenRecorder = try await ScreenRecorder(
   displayID: displayId, cropRect: nil, frameRate: frameRate)
@@ -111,7 +113,6 @@ struct ScreenRecorder {
 
     streamOutput = StreamOutput(displayID: self.displayID)
 
-
     // MARK: SCStream setup
 
     // Create a filter for the specified display
@@ -125,6 +126,7 @@ struct ScreenRecorder {
 configuration.queueDepth = 2
 configuration.minimumFrameInterval = CMTime(value: 1, timescale: frameRate)
 configuration.capturesAudio = false
+
 
     configuration
       .pixelFormat = kCVPixelFormatType_32BGRA
@@ -153,7 +155,6 @@ configuration.capturesAudio = false
     // Start capturing, wait for stream to start
     try await stream.startCapture()
 
-    streamOutput.sessionStarted = true
   }
 
   func stop() async throws {
@@ -162,7 +163,6 @@ configuration.capturesAudio = false
   }
 
   private class StreamOutput: NSObject, SCStreamOutput {
-    var sessionStarted = false
     var firstSampleTime: CMTime = .zero
 
     private let displayID: CGDirectDisplayID
@@ -176,11 +176,6 @@ configuration.capturesAudio = false
       _ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
       of type: SCStreamOutputType
     ) {
-print("Got sample buffer")
-
-
-      // Return early if session hasn't started yet
-      guard sessionStarted else { return }
 
       // Return early if the sample buffer is invalid
       guard sampleBuffer.isValid else { return }
@@ -192,10 +187,19 @@ print("Got sample buffer")
         let attachments = attachmentsArray.first
       else { return }
 
+let statusRawValue = attachments[SCStreamFrameInfo.status] as? Int
+
+guard let status = SCFrameStatus(rawValue: statusRawValue!) else {
+  print("unknown")
+  return
+}
+if status == .stopped {
+  stopped(displayID)
+  return
+}
+
       // Validate the status of the frame. If it isn't `.complete`, return
-      guard let statusRawValue = attachments[SCStreamFrameInfo.status] as? Int,
-        let status = SCFrameStatus(rawValue: statusRawValue),
-        status == .complete
+      guard status == .complete
       else { return }
 
       switch type {

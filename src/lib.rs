@@ -12,6 +12,7 @@ pub mod ffi {
 
     extern "Rust" {
         fn frame(id: u32, bytes_per_row: isize, width: isize, height: isize, bytes: &[u8]);
+        fn stopped(id: u32);
     }
 
     extern "Swift" {
@@ -21,7 +22,7 @@ pub mod ffi {
 }
 
 fn frame(id: CGDisplayId, bytes_per_row: isize, width: isize, height: isize, bytes: &[u8]) {
-    debug!("frame: {}x{}. bytes_per_row: {}", width, height, bytes_per_row);
+    // debug!("frame: {}x{}. bytes_per_row: {}", width, height, bytes_per_row);
 
     let bytes = bytes.to_vec();
 
@@ -35,5 +36,16 @@ fn frame(id: CGDisplayId, bytes_per_row: isize, width: isize, height: isize, byt
             height,
             bytes: Arc::new(bytes),
         }).await;
+    });
+}
+
+fn stopped(id: CGDisplayId) {
+    debug!("stopped: {}", id);
+
+    let handle = HANDLE.get().unwrap().clone();
+    let handle = handle.lock().unwrap().clone().unwrap();
+
+    handle.spawn(async move {
+        DisplayManager::global().await.stopped(id).await;
     });
 }

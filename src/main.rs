@@ -17,13 +17,14 @@ async fn main() {
 
     display.start_capture(30).await;
 
-    let rx = display.subscribe_frame().await;
+    let mut rx = display.subscribe_frame().await;
     tokio::spawn(async move {
-        while rx.has_changed().is_ok() {
+        while rx.changed().await.is_ok() {
             let frame = rx.borrow().clone();
-            info!("frame: {}", frame);
+            // info!("frame: {}", frame);
             tokio::task::yield_now().await;
         }
+        println!("frame rx stopped")
     });
 
     println!("Press any key to exit...");

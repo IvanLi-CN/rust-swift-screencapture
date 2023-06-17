@@ -6,7 +6,7 @@ use std::{
 };
 
 use log::{debug, info, warn};
-use tokio::sync::{watch, OnceCell, RwLock};
+use tokio::sync::{broadcast, watch, OnceCell, RwLock};
 
 use crate::ffi::{self, start_record};
 
@@ -75,9 +75,10 @@ impl Display {
             bytes: Arc::new(Vec::new()),
         });
 
+
         let display_id = self.display_id;
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let manager = DisplayManager::global().await;
             let mut raw_rx = manager.all_frame_tx.subscribe();
 
@@ -95,12 +96,27 @@ impl Display {
             }
         });
 
+        let manager = DisplayManager::global().await;
+        let mut stop_rx = manager.capture_stop_tx.subscribe();
+
+        tokio::spawn(async move {
+            while let Ok(stopped_display_id) = stop_rx.recv().await {
+                if stopped_display_id == display_id {
+                    info!("stop capture display#{}", display_id);
+                    break;
+                }
+            }
+             info!("remove frame forward for display#: {}", display_id);
+           handle.abort();
+        });
+
         return rx;
     }
 }
 
 pub struct DisplayManager {
     all_frame_tx: watch::Sender<(CGDisplayId, Frame)>,
+    capture_stop_tx: broadcast::Sender<CGDisplayId>,
     capturing_display_ids: Arc<RwLock<HashMap<CGDisplayId, usize>>>,
 }
 
@@ -116,8 +132,11 @@ impl DisplayManager {
                 bytes: Arc::new(Vec::new()),
             },
         ));
+        let (capture_stop_tx, _) = broadcast::channel(5);
+
         Self {
             all_frame_tx,
+            capture_stop_tx,
             capturing_display_ids: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -142,6 +161,20 @@ impl DisplayManager {
             }
         }
         tokio::task::yield_now().await;
+    }
+
+    pub async fn stopped(&self, display_id: CGDisplayId) {
+        let mut ids = self.capturing_display_ids.write().await;
+
+        if ids.get_mut(&display_id).is_some() {
+            ids.remove(&display_id);
+            if let Err(err) = self.capture_stop_tx.send(display_id) {
+                warn!("display#{} stopped send failed: {}", display_id, err);
+            }
+            return;
+        }
+
+        ffi::stop_record()
     }
 
     pub async fn start_capture(&self, display_id: CGDisplayId, frame_rate: i32) {
