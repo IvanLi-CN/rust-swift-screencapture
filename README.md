@@ -10,6 +10,13 @@ Refer to the sample code in [src/main](src/main.rs).
 
 Execute `cargo run` to see the sample code in action.
 
+## Credits
+
+[chinedufn/swift-bridge: swift-bridge facilitates Rust and Swift interop.](https://github.com/chinedufn/swift-bridge)
+
+[nonstrict-hq/ScreenCaptureKit-Recording-example: Example of how to use ScreenCaptureKit to record to a file](https://github.com/nonstrict-hq/ScreenCaptureKit-Recording-example)
+
+
 ## License
 
 [MIT](LICENSE)
