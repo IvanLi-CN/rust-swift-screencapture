@@ -1,35 +1,15 @@
-# Rust Binary calls Swift Package
+# Rust Swift ScreenCaptureKit
 
-In this example we create a Rust binary that statically links to a Swift Package.
+This is a screen capture library developed in Rust + Swift, implemented using the [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit/) framework. Supports macOS 13.0+.
 
-This means that we:
+*Warning: this library is for simple functional verification, and I'm not a Swift developer, so I'm not sure if the code implementation makes sense.*
 
-1. Use `swift-bridge-build` to generate our Swift FFI layer.
+## Use
 
-2. Compile the Swift Package into a static library. We include our generated `swift-bridge` FFI glue from step 1.
+Refer to the sample code in [src/main](src/main.rs).
 
-3. Compile our Rust executable. Along the way we link to our Swift static library.
+Execute `cargo run` to see the sample code in action.
 
----
+## License
 
-## To Run
-
-```
-git clone https://github.com/chinedufn/swift-bridge
-cd swift-bridge
-
-cargo run -p rust-binary-calls-swift-package
-```
-
-You should see the following output:
-
-```sh
-The Rust starting number is 100.
-Starting Swift multiply by 4 function...
-Calling the Rust double function twice in order to 4x our number...
-Rust double function called...
-Rust double function called...
-Leaving Swift multiply by 4 function...
-Printing the number from Rust...
-The number is now 400.
-```
+[MIT](LICENSE)
